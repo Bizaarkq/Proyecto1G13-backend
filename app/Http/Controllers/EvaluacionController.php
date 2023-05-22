@@ -75,6 +75,7 @@ class EvaluacionController extends Controller
                 'id_tipo' => $request->id_tipo,
                 'id_doc_materia' => $docenteMateriaCiclo->id_doc_materia,
                 'id_eva_padre' => $request->id_eva_padre,
+                'id_materia' => $request->id_materia,
                 'nombre' => $request->nombre,
                 'fecha_realizacion' => $request->fecha_realizacion,
                 'fecha_publicacion' => $hoy,
@@ -104,7 +105,7 @@ class EvaluacionController extends Controller
                     'updated_user' => $user->carnet
                 ]);
             }
-            DB::rollBack();
+            DB::commit();
             return response()->json([
                 'success' => true,
                 'message' => 'Evaluación creada correctamente'
@@ -119,5 +120,153 @@ class EvaluacionController extends Controller
         }
         
     }
+
+    public function list($id_ciclo, $id_materia)
+    {
+        $validators = Validator::make([
+            'id_ciclo' => $id_ciclo,
+            'id_materia' => $id_materia
+        ],
+        [
+            'id_materia' => 'required|integer',
+            'id_ciclo' => 'required|integer'
+        ]);
+
+        if($validators->fails()){
+            return response()->json([
+                'success' => false,
+                'message' => 'Error en la validación de datos',
+                'errors' => $validators->errors()
+            ], 422);
+        }
+
+        $user = Auth::guard('api')->user();
+        $docente = Docente::where('codigo', $user->carnet)->first();
+
+        $request = Docente::getEvaluacionEstudiantes($docente->id_docente,$id_ciclo, $id_materia);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Evaluaciones obtenidas correctamente',
+            'data' => $request
+        ], 200);
+    }
+
+    public function marcarAsistencia(Request $request)
+    {
+        $validators = Validator::make($request->all(), [
+            'id_evaluacion' => 'required|integer',
+            'carnet' => 'required|string',
+            'asistio' => 'required|boolean'
+        ]);
+
+        if($validators->fails()){
+            return response()->json([
+                'success' => false,
+                'message' => 'Error en la validación de datos',
+                'errors' => $validators->errors()
+            ], 422);
+        }
+
+        $user = Auth::guard('api')->user();
+
+        if(!$this->checkIntEValuacion($request->id_evaluacion)){
+            return response()->json([
+                'success' => false,
+                'message' => 'La evaluación no existe'
+            ], 422);
+        }
+
+        if(!$this->checkEstudiante($request->carnet)){
+            return response()->json([
+                'success' => false,
+                'message' => 'El estudiante no existe'
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            DB::table('evaluacion_estudiante')
+            ->where('id_evaluacion', $request->id_evaluacion)
+            ->where('carnet', $request->carnet)
+            ->update([
+                'asistencia' => $request->asistio,
+                'updated_at' => Carbon::now()->format('Y-m-d'),
+                'updated_user' => $user->carnet
+            ]);
+            DB::commit();
+            return response()->json([
+                'success' => true,
+                'message' => 'Asistencia marcada correctamente para el estudiante '.$request->carnet.' en la evaluación.'
+            ], 200);
+        }catch(\Exception $e){
+            DB::rollback();
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al marcar la asistencia',
+                'errors' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function registrarNota(Request $request)
+    {
+        $validators = Validator::make($request->all(), [
+            'id_evaluacion' => 'required|integer',
+            'carnet' => 'required|string',
+            'nota' => 'required|numeric'
+        ]);
+
+        if($validators->fails()){
+            return response()->json([
+                'success' => false,
+                'message' => 'Error en la validación de datos',
+                'errors' => $validators->errors()
+            ], 422);
+        }
+
+        $user = Auth::guard('api')->user();
+
+        if(!$this->checkIntEValuacion($request->id_evaluacion)){
+            return response()->json([
+                'success' => false,
+                'message' => 'La evaluación no existe'
+            ], 422);
+        }
+
+        if(!$this->checkEstudiante($request->carnet)){
+            return response()->json([
+                'success' => false,
+                'message' => 'El estudiante no existe'
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try{
+            DB::table('evaluacion_estudiante')
+            ->where('id_evaluacion', $request->id_evaluacion)
+            ->where('carnet', $request->carnet)
+            ->update([
+                'nota' => $request->nota,
+                'updated_at' => Carbon::now()->format('Y-m-d'),
+                'updated_user' => $user->carnet
+            ]);
+            DB::commit();
+            return response()->json([
+                'success' => true,
+                'message' => 'Nota registrada correctamente para el estudiante '.$request->carnet.' en la evaluación.'
+            ], 200);
+        }catch(\Exception $e){
+            DB::rollback();
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al registrar la nota',
+                'errors' => $e->getMessage()
+            ], 500);
+        }
+
+    }
+
+
 
 }

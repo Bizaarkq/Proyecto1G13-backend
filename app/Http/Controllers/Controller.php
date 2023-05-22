@@ -20,6 +20,12 @@ class Controller extends BaseController
         return !is_null($evaluacion);
     }
 
+    function checkEstudiante($carnet)
+    {
+        $estudiante = DB::table('estudiante')->where('carnet', $carnet)->first();
+        return !is_null($estudiante);
+    }
+
     function getCicloActivo()
     {
         $hoy = Carbon::now();

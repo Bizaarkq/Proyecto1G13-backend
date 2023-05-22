@@ -19,6 +19,7 @@ $router->group(['prefix' => 'api'], function () use ($router) {
     $router->group(['middleware' => 'auth', 'prefix' => 'revision'], function() use ($router) {
         $router->group(['middleware' => 'role:docente'], function() use ($router) {
             $router->get('docente', 'RevisionController@getRevisionesDocente');
+            $router->get('pendientes', 'RevisionController@getListadoRevPendientes');
             $router->post('aprobar', 'RevisionController@aprobarRevision');
         });
 
@@ -32,7 +33,10 @@ $router->group(['prefix' => 'api'], function () use ($router) {
     $router->group(['middleware' => 'auth', 'prefix' => 'evaluacion'], function() use ($router) {
         $router->group(['middleware' => 'role:docente'], function() use ($router) {
             //$router->get('docente', 'EvaluacionController@getEvaluacionesDocente');
+            $router->get('evaluaciones-estudiantes/{id_ciclo}/{id_materia}', 'EvaluacionController@list');
             $router->post('crear', 'EvaluacionController@create');
+            $router->post('marcar-asistencia', 'EvaluacionController@marcarAsistencia');
+            $router->post('registrar-nota', 'EvaluacionController@registrarNota');
             //$router->post('editar', 'EvaluacionController@editarEvaluacion');
             //$router->post('eliminar', 'EvaluacionController@eliminarEvaluacion');
         });
