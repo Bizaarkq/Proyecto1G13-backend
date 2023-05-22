@@ -13,14 +13,6 @@ use Log;
 
 class AuthController extends Controller
 {
-    
-    public function index()
-    {   
-        $pdo = DB::connection()->getPdo();
-        dd($pdo);
-        return json_encode($pdo);
-    }
-
     public function login(Request $request)
     {
 
