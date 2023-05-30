@@ -10,9 +10,10 @@ $router->group(['prefix' => 'api'], function () use ($router) {
 
     //auth routes
     $router->post('auth/login', 'AuthController@login');
+    
     $router->group(['middleware' => 'auth', 'prefix' => 'auth'], function() use ($router) {
         $router->post('logout', 'AuthController@logout');
-        $router->post('me', 'AuthController@me');
+        $router->get('me', 'AuthController@me');
     });
 
     //revision routes
@@ -26,6 +27,7 @@ $router->group(['prefix' => 'api'], function () use ($router) {
         $router->group(['middleware' => 'role:estudiante'], function() use ($router) {
             $router->get('estudiante', 'RevisionController@getRevisionesEstudiante');
             $router->post('solicitar', 'RevisionController@solicitarRevision');
+            $router->get('evaluaciones', 'RevisionController@getEvaluacionesRevision');
         });
     });
 

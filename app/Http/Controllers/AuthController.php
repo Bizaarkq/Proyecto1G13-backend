@@ -17,7 +17,7 @@ class AuthController extends Controller
     {
 
         $validator = Validator::make($request->all(), [
-            'user' => 'required|email',
+            'email' => 'required|email',
             'password' => 'required|string'
         ]);
 
@@ -28,11 +28,13 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $user = $request->input('user');
+        $user = $request->input('email');
         $password = $request->input('password');
 
-        $exists = User::where('email', $user)
-        ->select('name', 'email', 'password')    
+        $exists = User::join('model_has_roles as mhr', 'mhr.model_id', '=', 'users.id')
+        ->join('roles as r', 'r.id', '=', 'mhr.role_id')
+        ->where('users.email', $user)
+        ->select('users.name', 'users.email', 'users.password', 'users.carnet', 'r.name as role')    
         ->first();
 
         if(!$exists){

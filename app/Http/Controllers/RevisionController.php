@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Http\Controllers;
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -12,12 +13,11 @@ use Illuminate\Http\Request;
 
 class RevisionController extends Controller
 {
-
     public function getRevisionesDocente()
-    {   
+    {
         $user = Auth::guard('api')->user();
         $docente = Docente::where('codigo', $user->carnet)->first();
-        $revisiones = Revision::whereHas('Docente', function($query) use ($docente){
+        $revisiones = Revision::whereHas('Docente', function ($query) use ($docente) {
             $query->where('id_docente', $docente->id);
         })->get();
 
@@ -29,9 +29,9 @@ class RevisionController extends Controller
     }
 
     public function getRevisionesEstudiante()
-    {   
+    {
         $user = Auth::guard('api')->user();
-        $revisiones = Revision::whereHas('Estudiante', function($query) use ($user){
+        $revisiones = Revision::whereHas('Estudiante', function ($query) use ($user) {
             $query->where('carnet', $user->carnet);
         })->get();
 
@@ -49,7 +49,7 @@ class RevisionController extends Controller
             'motivo' => 'required|string|max:300'
         ]);
 
-        if($validators->fails()){
+        if ($validators->fails()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error en la validación de datos',
@@ -57,7 +57,7 @@ class RevisionController extends Controller
             ], 422);
         }
 
-        if(!$this->checkIntEValuacion($request->input('id_evaluacion'))){
+        if (!$this->checkIntEValuacion($request->input('id_evaluacion'))) {
             return response()->json([
                 'success' => false,
                 'message' => 'La evaluación no existe'
@@ -72,7 +72,7 @@ class RevisionController extends Controller
             ->where('carnet', $estudiante->carnet)
             ->first();
 
-        if(!$checkEvaluacion){
+        if (!$checkEvaluacion) {
             return response()->json([
                 'success' => false,
                 'message' => 'El estudiante no está inscrito en la evaluación'
@@ -105,7 +105,6 @@ class RevisionController extends Controller
                 'errors' => $th->getMessage()
             ], 500);
         }
-
     }
 
     public function desistirRevision(Request $request)
@@ -115,7 +114,7 @@ class RevisionController extends Controller
             'motivo' => 'required|string|max:300'
         ]);
 
-        if($validators->fails()){
+        if ($validators->fails()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error en la validación de datos',
@@ -131,14 +130,14 @@ class RevisionController extends Controller
             ->where('carnet', $estudiante->carnet)
             ->first();
 
-        if(!$solicitud){
+        if (!$solicitud) {
             return response()->json([
                 'success' => false,
                 'message' => 'La solicitud no existe'
             ], 404);
         }
 
-        if($solicitud->estado != 'PENDIENTE'){
+        if ($solicitud->estado != 'PENDIENTE') {
             return response()->json([
                 'success' => false,
                 'message' => 'La solicitud ya fue '. $solicitud->estado
@@ -146,7 +145,7 @@ class RevisionController extends Controller
         }
 
         DB::beginTransaction();
-        try{
+        try {
             DB::table('solicitud_revision')
             ->where('id_sol', $request->input('id_sol'))
             ->where('carnet', $estudiante->carnet)
@@ -156,7 +155,7 @@ class RevisionController extends Controller
                 'updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
                 'updated_user' => $estudiante->carnet
             ]);
-        }catch(\Throwable $th){
+        } catch(\Throwable $th) {
             DB::rollback();
             return response()->json([
                 'success' => false,
@@ -175,7 +174,7 @@ class RevisionController extends Controller
             'fecha' => 'sometimes|required|date_format:Y-m-d H:i:s',
         ]);
 
-        if($validators->fails()){
+        if ($validators->fails()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error en la validación de datos',
@@ -194,7 +193,7 @@ class RevisionController extends Controller
             ->select('materia.id_materia')
             ->first();
 
-        if(!$materia){
+        if (!$materia) {
             return response()->json([
                 'success' => false,
                 'message' => 'La solicitud de revisión no existe'
@@ -207,7 +206,7 @@ class RevisionController extends Controller
             ->where('id_ciclo', $id_ciclo->id_ciclo)
             ->first();
 
-        if(!$docenteMateriaCiclo){
+        if (!$docenteMateriaCiclo) {
             return response()->json([
                 'success' => false,
                 'message' => 'El docente no está asignado a la materia'
@@ -243,7 +242,7 @@ class RevisionController extends Controller
         $user = Auth::guard('api')->user();
         $docente = Docente::where('codigo', $user->carnet)->first();
         $id_ciclo = $this->getCicloActivo();
-        
+
         $revisiones = DB::table('solicitud_revision as sr')
             ->join('evaluacion as ev', 'ev.id_evaluacion', '=', 'sr.id_evaluacion')
             ->join('materia as m', 'm.id_materia', '=', 'ev.id_materia')
@@ -254,18 +253,70 @@ class RevisionController extends Controller
             ->where('d.id_docente', $docente->id_docente)
             ->where('c.id_ciclo', $id_ciclo->id_ciclo)
             ->select(
-                'sr.id_sol', 
-                'sr.id_evaluacion', 
-                'sr.motivo', 
-                'sr.fecha_solicitud', 
-                'sr.estado', 
-                'm.codigo as materia', 
-                'ev.nombre as evaluacion')
+                'sr.id_sol',
+                'sr.id_evaluacion',
+                'sr.motivo',
+                'sr.fecha_solicitud',
+                'sr.estado',
+                'm.codigo as materia',
+                'ev.nombre as evaluacion'
+            )
             ->get();
 
         return response()->json([
             'success' => true,
             'data' => $revisiones
         ], 200);
+    }
+
+    public function getEvaluacionesRevision(Request $request)
+    {
+        try {
+            $user = Auth::guard('api')->user();
+            $estudiante = Estudiante::where('carnet', $user->carnet)->first();
+            $hoy = Carbon::now()->format('Y-m-d H:i:s');
+
+            $config = DB::table('configuracion')
+            ->where('codigo', 'PERIODO DIFERIDO')
+            ->first();
+
+            $dias_limite = $config->valor_fijo;
+
+            $solicitudesActivas = DB::table('solicitud_revision as sr')
+            ->where('carnet', $estudiante->carnet)
+            ->where('estado', 'PENDIENTE')
+            ->pluck('id_evaluacion');
+
+            $evaluaciones = DB::table('estudiante as est')
+                ->join('evaluacion_estudiante as ee', 'ee.carnet', '=', 'est.carnet')
+                ->join('evaluacion as ev', 'ev.id_evaluacion', '=', 'ee.id_evaluacion')
+                ->join('materia as m', 'm.id_materia', '=', 'ev.id_materia')
+                ->where('est.carnet', $estudiante->carnet)
+                ->whereNotIn('ev.id_evaluacion', $solicitudesActivas)
+                ->whereNotNull('ee.nota')
+                ->whereNotNull('ee.asistencia')
+                ->select(
+                    'ev.id_evaluacion',
+                    'ev.nombre',
+                    'm.codigo',
+                    'ee.updated_at'
+                )
+                ->get();
+
+            $eval = array_filter($evaluaciones->toArray(), function ($item) use ($hoy, $dias_limite) {
+                return Carbon::parse($item->updated_at)->diffInDays($hoy) <= $dias_limite ;
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $eval
+            ], 200);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener las evaluaciones',
+                'errors' => $th->getMessage()
+            ], 500);
+        }
     }
 }
