@@ -42,12 +42,15 @@ $router->group(['prefix' => 'api'], function () use ($router) {
             $router->post('crear', 'EvaluacionController@create');
             $router->post('marcar-asistencia', 'EvaluacionController@marcarAsistencia');
             $router->post('registrar-nota', 'EvaluacionController@registrarNota');
+            $router->get('solicitudes-diferido-repetido', 'EvaluacionController@getSolicitudesDiferidoRepetido');
+            $router->post('aprobar-diferido-repetido', 'EvaluacionController@aprobarDiferidoRepetido');
             //$router->post('editar', 'EvaluacionController@editarEvaluacion');
             //$router->post('eliminar', 'EvaluacionController@eliminarEvaluacion');
         });
 
         $router->group(['middleware' => 'role:estudiante'], function() use ($router) {
             $router->get('estudiante', 'EvaluacionController@getEvaluaciones');
+            $router->post('solicitar-diferido-repetido', 'EvaluacionController@solicitarDiferidoRepetido');
         });
     });
 });

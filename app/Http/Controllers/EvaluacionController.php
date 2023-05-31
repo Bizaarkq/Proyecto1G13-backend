@@ -40,7 +40,7 @@ class EvaluacionController extends Controller
             ], 422);
         }
 
-        $hoy = Carbon::now()->format('Y-m-d');
+        $hoy = Carbon::now()->format('Y-m-d H:i:s');
         $user = Auth::guard('api')->user();
         $docente = Docente::where('codigo', $user->carnet)->first();
         $id_ciclo = DB::table('ciclo')
@@ -288,7 +288,11 @@ class EvaluacionController extends Controller
             ->join('docente_materia_ciclo as dmc', 'dmc.id_doc_materia', 'e.id_doc_materia')
             ->join('ciclo as c', 'c.id_ciclo', 'dmc.id_ciclo')
             ->join('docente as d', 'd.id_docente', 'dmc.id_docente')
-            ->where('ee.carnet', $user->carnet)
+            ->leftJoin('solicitud_diferido_repetido as sdr', function ($query) use ($user) {
+                $query->on('sdr.id_evaluacion', 'e.id_evaluacion')
+                ->where('sdr.carnet', $user->carnet);
+            })
+            ->where('est.carnet', $user->carnet)
             ->where('c.id_ciclo', $ciclo->id_ciclo)
             ->select(
                 'e.id_evaluacion',
@@ -302,33 +306,37 @@ class EvaluacionController extends Controller
                 'e.es_repetido',
                 'm.codigo as materia',
                 'c.codigo as ciclo',
+                'sdr.id_solicitud as diferido_repetido',
+                'sdr.aprobado'
             )
             ->orderBy('e.fecha_realizacion', 'desc')
             ->get();
 
             $evaluaciones = json_decode(json_encode($evaluaciones), true);
+
             $hoy = Carbon::now()->format('Y-m-d');
             foreach ($evaluaciones as $key => $evaluacion) {
-                $evaluaciones[$key]['puede_diferir'] = 
+                $evaluaciones[$key]['puede_diferir'] =
+                    $evaluacion['diferido_repetido'] == null &&
                     $evaluacion['asistencia'] == 0 &&
                     $evaluacion['nota'] == null  &&
-                    $evaluacion['es_diferido'] == 0 && 
-                    $evaluacion['es_repetido'] == 0 && 
+                    $evaluacion['es_diferido'] == 0 &&
+                    $evaluacion['es_repetido'] == 0 &&
                     Carbon::parse($evaluacion['fecha_realizacion'])->lt($hoy) &&
                     Carbon::parse($evaluacion['fecha_realizacion'])->diffInDays($hoy) <= $limite_dif;
 
-                if($evaluacion['asistencia']){
+                if ($evaluacion['asistencia']) {
                     $nota_avg = DB::table('evaluacion_estudiante')
                     ->where('id_evaluacion', $evaluacion['id_evaluacion'])
                     ->avg('nota');
 
-                    $evaluaciones[$key]['puede_repetir'] = 
+                    $evaluaciones[$key]['puede_repetir'] =
+                        $evaluacion['diferido_repetido'] == null &&
                         $nota_avg < 5.1 &&
                         $evaluacion['es_diferido'] == 0 &&
                         $evaluacion['es_repetido'] == 0 &&
                         $evaluacion['asistencia'] == 1;
                 }
-                
             }
 
             return response()->json([
@@ -337,9 +345,203 @@ class EvaluacionController extends Controller
                 'data' => $evaluaciones
             ], 200);
         } catch(\Exception $e) {
+            \Log::error('Error al obtener las evaluaciones: '.$e);
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener las evaluaciones',
+                'errors' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function solicitarDiferidoRepetido(Request $request)
+    {
+        try {
+            $validators = Validator::make($request->all(), [
+                'id_evaluacion' => 'required|integer',
+                'tipo' => 'required|string|in:diferido,repetido'
+            ]);
+
+            if ($validators->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error en la validación de datos',
+                    'errors' => $validators->errors()
+                ], 422);
+            }
+
+            $user = Auth::guard('api')->user();
+            $estudiante = DB::table('estudiante')->where('carnet', $user->carnet)->first();
+
+            DB::table('solicitud_diferido_repetido')
+            ->insert([
+                'id_evaluacion' => $request->id_evaluacion,
+                'carnet' => $estudiante->carnet,
+                'es_diferido' => $request->tipo == 'diferido' ? 1 : 0,
+                'created_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                'created_user' => $user->carnet,
+                'updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                'updated_user' => $user->carnet
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Solicitud de '.$request->tipo.' enviada correctamente'
+            ], 200);
+        } catch(\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al solicitar el diferido/repetido',
+                'errors' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function aprobarDiferidoRepetido(Request $request)
+    {
+        try {
+            $validators = Validator::make($request->all(), [
+                'id_solicitud' => 'required|integer',
+                'aprobado' => 'required|boolean'
+            ]);
+
+            if ($validators->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error en la validación de datos',
+                    'errors' => $validators->errors()
+                ], 422);
+            }
+
+            $user = Auth::guard('api')->user();
+
+            DB::beginTransaction();
+            DB::table('solicitud_diferido_repetido')
+            ->where('id_solicitud', $request->id_solicitud)
+            ->update([
+                'aprobado' => $request->aprobado,
+                'updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                'updated_user' => $user->carnet
+            ]);
+            if ($request->aprobado) {
+                $eval = DB::table('solicitud_diferido_repetido')
+                ->where('id_solicitud', $request->id_solicitud)
+                ->select('id_evaluacion', 'es_diferido', 'carnet')
+                ->first();
+
+                $exam = DB::table('evaluacion')
+                ->where('id_eva_padre', function ($query) use ($eval) {
+                    $query->select('id_evaluacion')
+                    ->from('evaluacion')
+                    ->where('id_evaluacion', $eval->id_evaluacion)
+                    ->whereNull('es_diferido')
+                    ->first()->id_evaluacion;
+                })
+                ->first();
+
+                if (!$exam) {
+                    $eva = DB::table('evaluacion')
+                    ->where('id_evaluacion', $eval->id_evaluacion)
+                    ->first();
+                    $hoy = Carbon::now();
+                    $id = DB::table('evaluacion')
+                    ->insertGetId([
+                        'id_eva_padre' => $eval->id_evaluacion,
+                        'id_tipo' => $eva->id_tipo,
+                        'id_doc_materia' => $eva->id_doc_materia,
+                        'id_materia' => $eva->id_materia,
+                        'nombre' => $eva->nombre . ' ' . 'Diferido/Repetido',
+                        'fecha_realizacion' => $hoy->addWeek()->format('Y-m-d'),
+                        'fecha_publicacion' => $hoy->format('Y-m-d'),
+                        'lugar' => $eva->lugar,
+                        'es_diferido' => $eval->es_diferido,
+                        'es_repetido' => !$eval->es_diferido,
+                        'created_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                        'created_user' => $user->carnet,
+                        'updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                        'updated_user' => $user->carnet
+                    ], 'id_evaluacion');
+
+                    DB::table('evaluacion_estudiante')
+                    ->insert([
+                        'id_evaluacion' => $id,
+                        'carnet' => $eval->carnet,
+                        'created_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                        'created_user' => $user->email,
+                        'updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                        'updated_user' => $user->email
+                    ]);
+
+                }else{
+                    DB::table('evaluacion_estudiante')
+                    ->insert([
+                        'id_evaluacion' => $exam->id_evaluacion,
+                        'carnet' => $eval->carnet,
+                        'created_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                        'created_user' => $user->email,
+                        'updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                        'updated_user' => $user->email
+                    ]);
+                }
+            }
+
+            DB::commit();
+            return response()->json([
+                'success' => true,
+                'message' => 'Solicitud aprobada correctamente'
+            ], 200);
+        } catch(\Exception $e) {
+            DB::rollback();
+            \Log::warning('Error al aprobar la solicitud: '.$e);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al aprobar la solicitud',
+                'errors' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function getSolicitudesDiferidoRepetido(Request $request)
+    {
+        try{
+            $user = Auth::guard('api')->user();
+            $docente = DB::table('docente')->where('codigo', $user->carnet)->first();
+            $ciclo = $this->getCicloActivo();
+            $materias = DB::table('docente_materia_ciclo as dmc')
+            ->join('evaluacion', 'dmc.id_materia', '=', 'evaluacion.id_materia')
+            ->where('id_docente', $docente->id_docente)
+            ->where('id_ciclo', $ciclo->id_ciclo)
+            ->pluck('evaluacion.id_materia');            
+
+            $solicitudes = DB::table('solicitud_diferido_repetido as s')
+            ->join('evaluacion as e', 'e.id_evaluacion', '=', 's.id_evaluacion')
+            ->join('estudiante as es', 'es.carnet', '=', 's.carnet')
+            ->join('materia as m', 'm.id_materia', '=', 'e.id_materia')
+            ->join('tipo_evaluacion as te', 'te.id_tipo', '=', 'e.id_tipo')
+            ->whereIn('e.id_materia', $materias)
+            ->select(
+                's.id_solicitud', 
+                's.carnet', 
+                'es.nombres', 
+                'es.apellidos', 
+                'm.codigo as materia', 
+                'te.descripcion as tipo', 
+                'e.nombre as evaluacion',
+                's.es_diferido',
+                's.aprobado'
+            )
+            ->get();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Solicitudes obtenidas correctamente',
+                'data' => $solicitudes
+            ], 200);
+
+        }catch(\Exception $e){
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener las solicitudes',
                 'errors' => $e->getMessage()
             ], 500);
         }
