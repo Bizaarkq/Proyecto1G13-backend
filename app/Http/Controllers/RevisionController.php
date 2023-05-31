@@ -31,7 +31,28 @@ class RevisionController extends Controller
     public function getRevisionesEstudiante()
     {
         $user = Auth::guard('api')->user();
-        $revisiones = Revision::whereHas('Estudiante', function ($query) use ($user) {
+        $revisiones = DB::table('solicitud_revision as sr')
+        ->join('evaluacion as e', 'sr.id_evaluacion', '=', 'e.id_evaluacion')
+        ->join('materia as m', 'e.id_materia', '=', 'm.id_materia')
+        ->join('estudiante as es', 'sr.carnet', '=', 'es.carnet')
+        ->leftJoin('revision as r', 'sr.id_sol', '=', 'r.id_sol')
+        ->leftJoin('docente as d', 'r.id_docente', '=', 'd.id_docente')
+        ->where('es.carnet', $user->carnet)
+        ->select(
+            'sr.id_sol',
+            'sr.fecha_solicitud',
+            'sr.motivo',
+            'sr.estado',
+            'e.nombre',
+            'm.codigo',
+            'sr.fecha_aprobacion',
+            'sr.local_destinado',
+            'sr.fecha_hora_revision',
+            'r.id as existe_revision'
+        )
+        ->get();
+        
+        Revision::whereHas('Estudiante', function ($query) use ($user) {
             $query->where('carnet', $user->carnet);
         })->get();
 

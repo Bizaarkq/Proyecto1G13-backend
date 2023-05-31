@@ -44,7 +44,7 @@ $router->group(['prefix' => 'api'], function () use ($router) {
         });
 
         $router->group(['middleware' => 'role:estudiante'], function() use ($router) {
-            $router->get('estudiante', 'EvaluacionController@getEvaluacionesEstudiante');
+            $router->get('estudiante', 'EvaluacionController@getEvaluaciones');
         });
     });
 });
