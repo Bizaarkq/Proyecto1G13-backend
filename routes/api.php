@@ -22,6 +22,9 @@ $router->group(['prefix' => 'api'], function () use ($router) {
             $router->get('docente', 'RevisionController@getRevisionesDocente');
             $router->get('pendientes', 'RevisionController@getListadoRevPendientes');
             $router->post('aprobar', 'RevisionController@aprobarRevision');
+            $router->get('motivos', 'RevisionController@getMotivosRevision');
+            $router->get('resociales', 'RevisionController@getResponsablesSociales');
+            $router->post('crear', 'RevisionController@crearRevision');
         });
 
         $router->group(['middleware' => 'role:estudiante'], function() use ($router) {
