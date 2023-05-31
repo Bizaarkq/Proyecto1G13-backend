@@ -10,6 +10,7 @@ use App\Models\Docente;
 use App\Models\Estudiante;
 use Illuminate\Support\Carbon;
 use Illuminate\Http\Request;
+use Log;
 
 class RevisionController extends Controller
 {
@@ -260,34 +261,52 @@ class RevisionController extends Controller
 
     public function getListadoRevPendientes(Request $request)
     {
-        $user = Auth::guard('api')->user();
-        $docente = Docente::where('codigo', $user->carnet)->first();
-        $id_ciclo = $this->getCicloActivo();
+        try { 
+            $user = Auth::guard('api')->user();
+            $docente = Docente::where('codigo', $user->carnet)->first();
+            $id_ciclo = $this->getCicloActivo();
 
-        $revisiones = DB::table('solicitud_revision as sr')
-            ->join('evaluacion as ev', 'ev.id_evaluacion', '=', 'sr.id_evaluacion')
-            ->join('materia as m', 'm.id_materia', '=', 'ev.id_materia')
-            ->join('docente_materia_ciclo as dmc', 'dmc.id_materia', '=', 'm.id_materia')
-            ->join('docente as d', 'd.id_docente', '=', 'dmc.id_docente')
-            ->join('ciclo as c', 'c.id_ciclo', '=', 'dmc.id_ciclo')
-            ->where('sr.estado', 'PENDIENTE')
-            ->where('d.id_docente', $docente->id_docente)
-            ->where('c.id_ciclo', $id_ciclo->id_ciclo)
-            ->select(
-                'sr.id_sol',
-                'sr.id_evaluacion',
-                'sr.motivo',
-                'sr.fecha_solicitud',
-                'sr.estado',
-                'm.codigo as materia',
-                'ev.nombre as evaluacion'
-            )
-            ->get();
+            $revisiones = DB::table('solicitud_revision as sr')
+                ->join('evaluacion as ev', 'ev.id_evaluacion', '=', 'sr.id_evaluacion')
+                ->join('materia as m', 'm.id_materia', '=', 'ev.id_materia')
+                ->join('docente_materia_ciclo as dmc', 'dmc.id_materia', '=', 'm.id_materia')
+                ->join('docente as d', 'd.id_docente', '=', 'dmc.id_docente')
+                ->join('ciclo as c', 'c.id_ciclo', '=', 'dmc.id_ciclo')
+                ->join('estudiante as est', 'est.carnet', '=', 'sr.carnet')
+                ->join('tipo_evaluacion as te', 'te.id_tipo', '=', 'ev.id_tipo')
+                ->leftJoin('revision as r', 'r.id_sol', '=', 'sr.id_sol')
+                ->where('sr.estado', 'PENDIENTE')
+                ->where('r.id_sol', null)
+                ->where('d.id_docente', $docente->id_docente)
+                ->where('c.id_ciclo', $id_ciclo->id_ciclo)
+                ->select(
+                    'sr.id_sol',
+                    'sr.id_evaluacion',
+                    'sr.motivo',
+                    'sr.fecha_solicitud',
+                    'sr.estado',
+                    'm.codigo as materia',
+                    'ev.nombre as evaluacion',
+                    'est.carnet',
+                    'est.nombres',
+                    'est.apellidos',
+                    'te.descripcion as tipo'
+                )
+                ->get();
 
-        return response()->json([
-            'success' => true,
-            'data' => $revisiones
-        ], 200);
+            return response()->json([
+                'success' => true,
+                'message' => 'Solicitudes de revisión obtenidas correctamente',
+                'data' => $revisiones
+            ], 200);
+        }catch (\Throwable $th) {
+            Log::info('Error al obtener las solicitudes de revisión: ' . $th);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener las solicitudes de revisión',
+            ], 500);
+        }
+        
     }
 
     public function getEvaluacionesRevision(Request $request)
