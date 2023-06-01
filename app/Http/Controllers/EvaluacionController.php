@@ -471,8 +471,7 @@ class EvaluacionController extends Controller
                         'updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
                         'updated_user' => $user->email
                     ]);
-
-                }else{
+                } else {
                     DB::table('evaluacion_estudiante')
                     ->insert([
                         'id_evaluacion' => $exam->id_evaluacion,
@@ -503,7 +502,7 @@ class EvaluacionController extends Controller
 
     public function getSolicitudesDiferidoRepetido(Request $request)
     {
-        try{
+        try {
             $user = Auth::guard('api')->user();
             $docente = DB::table('docente')->where('codigo', $user->carnet)->first();
             $ciclo = $this->getCicloActivo();
@@ -511,7 +510,7 @@ class EvaluacionController extends Controller
             ->join('evaluacion', 'dmc.id_materia', '=', 'evaluacion.id_materia')
             ->where('id_docente', $docente->id_docente)
             ->where('id_ciclo', $ciclo->id_ciclo)
-            ->pluck('evaluacion.id_materia');            
+            ->pluck('evaluacion.id_materia');
 
             $solicitudes = DB::table('solicitud_diferido_repetido as s')
             ->join('evaluacion as e', 'e.id_evaluacion', '=', 's.id_evaluacion')
@@ -520,12 +519,12 @@ class EvaluacionController extends Controller
             ->join('tipo_evaluacion as te', 'te.id_tipo', '=', 'e.id_tipo')
             ->whereIn('e.id_materia', $materias)
             ->select(
-                's.id_solicitud', 
-                's.carnet', 
-                'es.nombres', 
-                'es.apellidos', 
-                'm.codigo as materia', 
-                'te.descripcion as tipo', 
+                's.id_solicitud',
+                's.carnet',
+                'es.nombres',
+                'es.apellidos',
+                'm.codigo as materia',
+                'te.descripcion as tipo',
                 'e.nombre as evaluacion',
                 's.es_diferido',
                 's.aprobado'
@@ -537,11 +536,262 @@ class EvaluacionController extends Controller
                 'message' => 'Solicitudes obtenidas correctamente',
                 'data' => $solicitudes
             ], 200);
+        } catch(\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener las solicitudes',
+                'errors' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function getEvaluacionesDocente(Request $request)
+    {
+        try {
+            $user = Auth::guard('api')->user();
+            $docente = DB::table('docente')->where('codigo', $user->carnet)->first();
+            $ciclo = $this->getCicloActivo();
+
+            $materias = DB::table('docente_materia_ciclo as dmc')
+            ->join('evaluacion', 'dmc.id_materia', '=', 'evaluacion.id_materia')
+            ->where('id_docente', $docente->id_docente)
+            ->where('id_ciclo', $ciclo->id_ciclo)
+            ->pluck('evaluacion.id_materia');
+
+            $evaluaciones = DB::table('evaluacion as e')
+            ->join('materia as m', 'm.id_materia', '=', 'e.id_materia')
+            ->join('tipo_evaluacion as te', 'te.id_tipo', '=', 'e.id_tipo')
+            ->leftJoin('impresion as imp', 'imp.id_evaluacion', 'e.id_evaluacion')
+            ->leftJoin('error_impresion as ei', 'ei.cod_error_imp', 'imp.cod_error_imp')
+            ->whereIn('e.id_materia', $materias)
+            ->select(
+                'e.id_evaluacion',
+                'e.id_materia',
+                'm.codigo as materia',
+                'te.descripcion as tipo',
+                'e.nombre as evaluacion',
+                'e.fecha_realizacion',
+                'e.fecha_publicacion',
+                'e.lugar',
+                'e.es_diferido',
+                'e.es_repetido',
+                'imp.id_impresion',
+                'imp.aprobado',
+                'imp.detalles_formato',
+                'imp.hojas_anexas',
+                'imp.cantidad',
+                'ei.nombre as codigo_error',
+                'ei.descripcion as error_impresion',
+                'imp.observacion_error',
+                'imp.impreso'
+            )
+            ->orderBy('e.fecha_realizacion', 'desc')
+            ->get();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Evaluaciones obtenidas correctamente',
+                'data' => $evaluaciones
+            ], 200);
+        } catch(\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener las evaluaciones',
+                'errors' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function solicitarImpresion(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'id_evaluacion' => 'required',
+                'detalles_formato' => 'required',
+                'hojas_anexas' => 'required',
+                'cantidad' => 'required',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al solicitar la impresión',
+                    'errors' => $validator->errors()
+                ], 400);
+            }
+
+            $user = Auth::guard('api')->user();
+            $docente = DB::table('docente')->where('codigo', $user->carnet)->first();
+
+            $dmc = DB::table('docente_materia_ciclo as dmc')
+            ->join('evaluacion as ev', 'ev.id_materia', '=', 'dmc.id_materia')
+            ->join('materia as m', 'm.id_materia', '=', 'ev.id_materia')
+            ->where('dmc.id_docente', $docente->id_docente)
+            ->where('ev.id_evaluacion', $request->id_evaluacion)
+            ->first();
+
+            if (!$dmc) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se encontró la evaluación',
+                    'errors' => 'No se encontró la evaluación'
+                ], 404);
+            }
+
+            DB::beginTransaction();
+            DB::table('impresion')->insert([
+                'id_doc_materia' => $dmc->id_doc_materia,
+                'id_evaluacion' => $request->id_evaluacion,
+                'detalles_formato' => $request->detalles_formato,
+                'hojas_anexas' => $request->hojas_anexas,
+                'cantidad' => $request->cantidad,
+                'created_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                'created_user' => $user->email,
+                'updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                'updated_user' => $user->email
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Impresión solicitada correctamente'
+            ], 200);
+        } catch(\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al solicitar la impresión',
+                'errors' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function getPendientesImpresion(Request $request)
+    {
+        try{
+            $user = Auth::guard('api')->user();
+
+            $pendientes = DB::table('impresion as imp')
+            ->join('evaluacion as ev', 'ev.id_evaluacion', '=', 'imp.id_evaluacion')
+            ->join('materia as m', 'm.id_materia', '=', 'ev.id_materia')
+            ->leftJoin('error_impresion as ei', 'ei.cod_error_imp', 'imp.cod_error_imp')
+            ->select(
+                'imp.id_impresion',
+                'm.codigo as materia',
+                'ev.nombre as evaluacion',
+                'imp.detalles_formato',
+                'imp.hojas_anexas',
+                'imp.cantidad',
+                'imp.aprobado',
+                'imp.impreso',
+                'ei.nombre as codigo_error',
+                'ei.descripcion as error_impresion',
+                'imp.observacion_error'
+            )->get();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Impresiones obtenidas correctamente',
+                'data' => $pendientes
+            ], 200);
+        }catch(\Exception $e){
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener las impresiones',
+                'errors' => $e->getMessage()
+            ], 500);
+        }
+    }   
+
+    public function aprobarImpresion(Request $request)
+    {
+        try{
+            $user = Auth::guard('api')->user();
+
+            $validator = Validator::make($request->all(), [
+                'id_impresion' => 'required',
+                'aprobado' => 'required'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al aprobar la impresión',
+                    'errors' => $validator->errors()
+                ], 400);
+            }
+
+            DB::table('impresion')
+            ->where('id_impresion', $request->id_impresion)
+            ->update([
+                'aprobado' => $request->aprobado,
+                'updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                'updated_user' => $user->email
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Impresión aprobada correctamente'
+            ], 200);
 
         }catch(\Exception $e){
             return response()->json([
                 'success' => false,
-                'message' => 'Error al obtener las solicitudes',
+                'message' => 'Error al aprobar la impresión',
+                'errors' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function imprimirEvaluacion(Request $request)
+    {
+        try{
+            $user = Auth::guard('api')->user();
+            $validator = Validator::make($request->all(), [
+                'id_impresion' => 'required',
+                'impreso' => 'required',
+                'codigo_error' => 'numeric|nullable',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al imprimir la evaluación',
+                    'errors' => $validator->errors()
+                ], 400);
+            }
+
+            
+            $impresion = DB::table('impresion')
+            ->where('id_impresion', $request->id_impresion);
+
+            if($request->impreso == 1){
+                $impresion->update([
+                    'impreso' => $request->impreso,
+                    'cod_error_imp' => null,
+                    'observacion_error' => null,
+                    'updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                    'updated_user' => $user->email
+                ]);
+            }else{
+                $impresion->update([
+                    'impreso' => $request->impreso,
+                    'cod_error_imp' => $request->codigo_error,
+                    'observacion_error' => $request->observacion_error,
+                    'updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                    'updated_user' => $user->email
+                ]);
+            }           
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Evaluación impresa correctamente'
+            ], 200);
+
+        }catch(\Exception $e){
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al imprimir la evaluación',
                 'errors' => $e->getMessage()
             ], 500);
         }

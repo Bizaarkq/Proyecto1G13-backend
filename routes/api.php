@@ -37,15 +37,22 @@ $router->group(['prefix' => 'api'], function () use ($router) {
     //evaluacion routes
     $router->group(['middleware' => 'auth', 'prefix' => 'evaluacion'], function() use ($router) {
         $router->group(['middleware' => 'role:docente'], function() use ($router) {
-            //$router->get('docente', 'EvaluacionController@getEvaluacionesDocente');
+            $router->get('docente', 'EvaluacionController@getEvaluacionesDocente');
             $router->get('evaluaciones-estudiantes/{id_ciclo}/{id_materia}', 'EvaluacionController@list');
             $router->post('crear', 'EvaluacionController@create');
             $router->post('marcar-asistencia', 'EvaluacionController@marcarAsistencia');
             $router->post('registrar-nota', 'EvaluacionController@registrarNota');
             $router->get('solicitudes-diferido-repetido', 'EvaluacionController@getSolicitudesDiferidoRepetido');
             $router->post('aprobar-diferido-repetido', 'EvaluacionController@aprobarDiferidoRepetido');
+            $router->post('solicitar-impresion', 'EvaluacionController@solicitarImpresion');
             //$router->post('editar', 'EvaluacionController@editarEvaluacion');
             //$router->post('eliminar', 'EvaluacionController@eliminarEvaluacion');
+        });
+
+        $router->group(['middleware' => 'role:impresor'], function() use ($router) {
+            $router->get('pendientes', 'EvaluacionController@getPendientesImpresion');
+            $router->post('imprimir', 'EvaluacionController@imprimirEvaluacion');
+            $router->post('aprobar-impresion', 'EvaluacionController@aprobarImpresion');
         });
 
         $router->group(['middleware' => 'role:estudiante'], function() use ($router) {
