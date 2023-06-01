@@ -405,6 +405,7 @@ class RevisionController extends Controller
                     ->count() < 3;
             });
 
+            $eval = array_values($eval);
             return response()->json([
                 'success' => true,
                 'data' => $eval
