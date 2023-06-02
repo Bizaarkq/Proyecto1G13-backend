@@ -60,5 +60,12 @@ $router->group(['prefix' => 'api'], function () use ($router) {
             $router->post('solicitar-diferido-repetido', 'EvaluacionController@solicitarDiferidoRepetido');
         });
     });
+    $router->group(['middleware' => 'auth', 'prefix' => 'config'], function() use ($router) {
+        $router->group(['middleware' => 'role:director'], function() use ($router) {
+            $router->get('getConfig', 'EvaluacionController@getConfiguraciones');
+            $router->post('setConfig', 'EvaluacionController@updateConfiguraciones');
+        });
+    });
+    
 });
 
