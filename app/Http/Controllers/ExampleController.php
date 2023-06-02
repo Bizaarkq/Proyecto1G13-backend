@@ -21,6 +21,7 @@ class ExampleController extends Controller
     {   
         $pdo = DB::connection()->getPdo();
         dd($pdo);
+        
         return json_encode($pdo);
     }
 
