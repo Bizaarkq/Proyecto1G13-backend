@@ -796,4 +796,59 @@ class EvaluacionController extends Controller
             ], 500);
         }
     }
+
+    public function getConfiguraciones(Request $request)
+    {
+        $configuraciones = DB::table('configuracion')->get();
+        return response()->json([
+            'success' => true,
+            'message' => 'Configuraciones obtenidas correctamente',
+            'data' => $configuraciones
+        ], 200);
+    }
+
+    public function updateConfiguraciones(Request $request)
+    {   
+        try{
+
+            $validator = Validator::make($request->all(), [
+                'id_conf' => 'required|integer',
+                'valor' => 'required|string',
+            ]);
+    
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Datos invalidos',
+                    'message' => $validator->errors()
+                ], 400);
+            }
+    
+            $user = Auth::guard('api')->user();
+            \Log::warning($user);
+            \Log::warning($request->id_conf);
+            \Log::warning($request->valor);
+            
+
+            DB::table('configuracion')
+                ->where('id_conf', $request->id_conf)
+                ->update([
+                    'valor_fijo' => $request->valor,
+                    'updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
+                    'updated_user' => $user->email
+                ]);
+    
+            return response()->json([
+                'success' => true,
+                'message' => 'Configuracion actualizada'
+            ]);
+        }catch(\Exception $e){
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al actualizar la configuracion',
+                'error' => $e->getMessage()
+            ], 400);
+        }
+        
+    }
 }
