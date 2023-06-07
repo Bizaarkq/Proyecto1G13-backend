@@ -41,12 +41,12 @@ class Controller extends BaseController
         return $ciclo;
     }
 
-    function sendEmail($to, $subject, $view, $data)
+    function sendEmail($to, $subject, $view, $data, $attach = null)
     {
         $from = env('MAIL_FROM_ADDRESS', '');
         $name = env('MAIL_FROM_NAME', 'CPA');
 
-        $send = Mail::to($to)->send(new Correo($from, $name, $subject, $view, $data));
+        $send = Mail::to($to)->send(new Correo($from, $name, $subject, $view, $data, $attach));
     
         return $send;
     }
