@@ -373,6 +373,14 @@ class EvaluacionController extends Controller
             $user = Auth::guard('api')->user();
             $estudiante = DB::table('estudiante')->where('carnet', $user->carnet)->first();
 
+            $file = $request->input('file');
+            $file = base64_decode($file);
+            file_put_contents(storage_path()."/app/".$request->tipo.'_'.$request->id_evaluacion.'_'.$user->carnet.'.pdf', $file);
+
+            $coordinador = $this->getCoordinadorMateria($request->id_evaluacion);
+            $evaluacion = DB::table('evaluacion')->where('id_evaluacion', $request->id_evaluacion)->first();
+            
+            DB::beginTransaction();
             DB::table('solicitud_diferido_repetido')
             ->insert([
                 'id_evaluacion' => $request->id_evaluacion,
@@ -384,11 +392,27 @@ class EvaluacionController extends Controller
                 'updated_user' => $user->carnet
             ]);
 
+            DB::commit();
+
+            $send = $this->sendEmail(
+                $coordinador->email,
+                'Solicitud de Diferido/Repetido',
+                'mails.solicitud_diferido_repetido',
+                [
+                    'carnet' => $user->carnet,
+                    'estudiante' => $estudiante->nombres . ' ' . $estudiante->apellidos,
+                    'tipo' => $request->tipo,
+                    'evaluacion' => $evaluacion->nombre,
+                ],
+                storage_path()."/app/".$request->tipo.'_'.$request->id_evaluacion.'_'.$user->carnet.'.pdf'
+            );
+
             return response()->json([
                 'success' => true,
-                'message' => 'Solicitud de '.$request->tipo.' enviada correctamente'
+                'message' => 'Solicitud de '.$request->tipo.' enviada correctamente' . ($send ? ' y correo enviado' : ''),
             ], 200);
         } catch(\Exception $e) {
+            \Log::error('Error al solicitar el diferido/repetido: '.$e);
             return response()->json([
                 'success' => false,
                 'message' => 'Error al solicitar el diferido/repetido',

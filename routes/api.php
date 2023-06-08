@@ -10,11 +10,19 @@ $router->group(['prefix' => 'api'], function () use ($router) {
 
     //auth routes
     $router->post('auth/login', 'AuthController@login');
+    $router->post('auth/register', 'AuthController@register');
     
     $router->group(['middleware' => 'auth', 'prefix' => 'auth'], function() use ($router) {
         $router->post('logout', 'AuthController@logout');
         $router->get('me', 'AuthController@me');
+
+        $router->group(['middleware' => 'role:coordinador'], function() use ($router) {
+            $router->post('aprobar-registro', 'AuthController@aprobarRegistro');
+            $router->get('solicitud-registro', 'AuthController@solicitudesRegistro');
+        });
     });
+
+
 
     //revision routes
     $router->group(['middleware' => 'auth', 'prefix' => 'revision'], function() use ($router) {

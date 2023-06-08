@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\Correo;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -27,7 +28,7 @@ class RevisionController extends Controller
                 ->join('ciclo as c', 'c.id_ciclo', '=', 'dmc.id_ciclo')
                 ->join('estudiante as est', 'est.carnet', '=', 'sr.carnet')
                 ->join('tipo_evaluacion as te', 'te.id_tipo', '=', 'ev.id_tipo')
-                ->join('evaluacion_estudiante as ee', function($join) {
+                ->join('evaluacion_estudiante as ee', function ($join) {
                     $join->on('ee.id_evaluacion', '=', 'ev.id_evaluacion')
                         ->on('ee.carnet', '=', 'est.carnet');
                 })
@@ -63,7 +64,7 @@ class RevisionController extends Controller
                 ->orderBy('sr.created_at', 'desc')
                 ->get();
 
-        foreach($revisiones as $key => $revision) {
+        foreach ($revisiones as $key => $revision) {
             $revisiones[$key]->fecha_revision = Carbon::parse($revision->fecha_revision)->format('d/m/Y');
             $revisiones[$key]->fecha_solicitud = Carbon::parse($revision->fecha_solicitud)->format('d/m/Y');
             $revisiones[$key]->nota_original = number_format($revision->nota_original, 2, '.', '');
@@ -163,13 +164,52 @@ class RevisionController extends Controller
                     'updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
                     'updated_user' => $estudiante->carnet
                 ]);
+
+            $coordinador = DB::table('evaluacion as e')
+                ->join('docente_materia_ciclo as dmc', 'dmc.id_materia', 'e.id_materia')
+                ->join('docente as d', 'd.id_docente', 'dmc.id_docente')
+                ->join('cargo as c', 'c.id_cargo', 'dmc.id_cargo')
+                ->join('users as u', 'u.carnet', 'd.codigo')
+                ->where('e.id_evaluacion', $request->input('id_evaluacion'))
+                ->where('c.descripcion', 'Coordinador')
+                ->select(
+                    'u.email',
+                    'd.nombres as docente_nombre',
+                    'd.apellidos as docente_apellido'
+                )
+                ->first();
+
+            $evaluacion = DB::table('evaluacion as e')
+                ->join('materia as m', 'm.id_materia', 'e.id_materia')
+                ->where('e.id_evaluacion', $request->input('id_evaluacion'))
+                ->select(
+                    'e.nombre as evaluacion_nombre',
+                    'm.codigo as materia_codigo'
+                )
+                ->first();
+            $send = $this->sendEmail(
+                $coordinador->email,
+                'Solicitud de revisión de evaluación',
+                'mails.correo',
+                [
+                    'docente' => $coordinador->docente_nombre . ' ' . $coordinador->docente_apellido,
+                    'estudiante' => $estudiante->nombres . ' ' . $estudiante->apellidos,
+                    'carnet' => $estudiante->carnet,
+                    'motivo' => $request->input('motivo'),
+                    'evaluacion' => $evaluacion->evaluacion_nombre,
+                    'materia' => $evaluacion->materia_codigo 
+                ]
+            );
+
             DB::commit();
+
             return response()->json([
                 'success' => true,
-                'message' => 'Solicitud de revisión enviada correctamente'
+                'message' => 'Solicitud de revisión enviada correctamente' . ($send ? ' con correo' : ''),
             ], 200);
         } catch (\Throwable $th) {
             DB::rollback();
+            \Log::error($th->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Error al enviar la solicitud de revisión',
@@ -283,7 +323,7 @@ class RevisionController extends Controller
                 'message' => 'El docente no está asignado a la materia'
             ], 422);
         }
-
+        DB::beginTransaction();
         try {
             DB::table('solicitud_revision')
                 ->where('id_sol', $request->input('id_sol'))
@@ -295,11 +335,45 @@ class RevisionController extends Controller
                     'updated_at' => Carbon::now()->format('Y-m-d H:i:s'),
                     'updated_user' => $docente->codigo
                 ]);
+
+            $dataEst = DB::table('solicitud_revision')
+                ->join('estudiante as e', 'e.carnet', '=', 'solicitud_revision.carnet')
+                ->join('users as u', 'u.carnet', '=', 'e.carnet')
+                ->join('evaluacion as eva', 'eva.id_evaluacion', '=', 'solicitud_revision.id_evaluacion')
+                ->join('materia as m', 'm.id_materia', '=', 'eva.id_materia')
+                ->where('id_sol', $request->input('id_sol'))
+                ->select(
+                    'e.carnet', 
+                    'e.nombres', 
+                    'e.apellidos', 
+                    'u.email',
+                    'm.codigo as materia',  
+                    'eva.nombre as evaluacion'
+                )
+                ->first();
+
+            $send = $this->sendEmail(
+                $dataEst->email,
+                'Solicitud de revisión de evaluación',
+                'mails.revision_aprobada',
+                [
+                    'docente' => $docente->nombres . ' ' . $docente->apellidos,
+                    'carnet' => $dataEst->carnet,
+                    'materia' => $dataEst->materia,
+                    'evaluacion' => $dataEst->evaluacion,
+                    'decision' => $request->input('decision'),
+                    'lugar' => $request->input('local'),
+                    'fecha' =>  Carbon::parse($request->input('fecha'))->format('d/m/Y H:i:s')
+                ]
+            );
+            DB::rollBack();
             return response()->json([
                 'success' => true,
-                'message' => 'Solicitud de revisión actualizada correctamente'
+                'message' => 'Solicitud de revisión actualizada correctamente' . ($send ? ' y notificación enviada' : '')
             ], 200);
         } catch (\Throwable $th) {
+            DB::rollBack();
+            \Log::error($th->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Error al actualizar la solicitud de revisión',
@@ -310,7 +384,7 @@ class RevisionController extends Controller
 
     public function getListadoRevPendientes(Request $request)
     {
-        try { 
+        try {
             $user = Auth::guard('api')->user();
             $docente = Docente::where('codigo', $user->carnet)->first();
             $id_ciclo = $this->getCicloActivo();
@@ -348,14 +422,13 @@ class RevisionController extends Controller
                 'message' => 'Solicitudes de revisión obtenidas correctamente',
                 'data' => $revisiones
             ], 200);
-        }catch (\Throwable $th) {
+        } catch (\Throwable $th) {
             Log::info('Error al obtener las solicitudes de revisión: ' . $th);
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener las solicitudes de revisión',
             ], 500);
         }
-        
     }
 
     public function getEvaluacionesRevision(Request $request)
@@ -464,7 +537,7 @@ class RevisionController extends Controller
 
     public function crearRevision(Request $request)
     {
-        try{
+        try {
             $validators = Validator::make($request->all(), [
                 'carnet' => 'required|string|max:7',
                 'respsociedad' => 'string|max:7|nullable',
@@ -473,7 +546,7 @@ class RevisionController extends Controller
                 'id_sol' => 'required|numeric'
             ]);
 
-            if($validators->fails()){
+            if ($validators->fails()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Error de validación',
@@ -496,7 +569,7 @@ class RevisionController extends Controller
                 ->whereNot('id_sol', $request->id_sol)
                 ->get();
 
-            if($check->count() > 0){
+            if ($check->count() > 0) {
                 $num_rev = $check->count() + 1;
             }
 
@@ -539,9 +612,7 @@ class RevisionController extends Controller
                 'success' => true,
                 'message' => 'Solicitud de revisión creada correctamente',
             ], 200);
-
-
-        }catch(\Throwable $th){
+        } catch(\Throwable $th) {
             Log::info('Error al crear la revisión: ' . $th);
             return response()->json([
                 'success' => false,
@@ -549,5 +620,4 @@ class RevisionController extends Controller
             ], 500);
         }
     }
-
 }
